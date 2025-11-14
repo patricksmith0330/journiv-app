@@ -26,10 +26,11 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "Journiv Service"
-    app_version: str = "0.1.0-beta.5"
+    app_version: str = "0.1.0-beta.6"
     debug: bool = False
     environment: str = "development"
     domain_name: str = ""
+    domain_scheme: str = "http"  # Protocol scheme: "http" (default, for development) or "https" (required for production, especially when behind reverse proxy). Used to generate correct public redirect URLs for OIDC callbacks and logout.
 
     # API
     api_v1_prefix: str = "/api/v1"
@@ -62,13 +63,15 @@ class Settings(BaseSettings):
     oidc_issuer: str = "https://pocketid.example.com"
     oidc_client_id: str = "journiv-app"
     oidc_client_secret: str = "change_me"
-    oidc_redirect_uri: str = "https://localhost:8000/api/v1/auth/oidc/callback"
+    oidc_redirect_uri: Optional[str] = None
     oidc_scopes: str = "openid email profile"
     oidc_auto_provision: bool = True
     oidc_disable_ssl_verify: bool = False  # Only for local development with self-signed certs
+    oidc_allow_insecure_prod: bool = False  # Allow OIDC over HTTP (INSECURE). Recommended only for advanced users in isolated homelabs. Default: false
 
-    # Redis Configuration (for OIDC state/cache)
-    redis_url: Optional[str] = None  # e.g., "redis://localhost:6379/0"
+    # Default for Docker quickstart (container name: redis)
+    redis_url: str = "redis://redis:6379/0"
+
 
     # CSP Configuration
     enable_csp: bool = True
@@ -389,6 +392,44 @@ class Settings(BaseSettings):
             ]
         return v
 
+    @field_validator('domain_scheme')
+    @classmethod
+    def validate_domain_scheme(cls, v: str) -> str:
+        """Validate DOMAIN_SCHEME is either http or https."""
+        v = v.lower().strip()
+        if v not in ("http", "https"):
+            raise ValueError(
+                "DOMAIN_SCHEME must be either 'http' or 'https'. "
+                f"Got: {v}"
+            )
+        return v
+
+    @field_validator('domain_name')
+    @classmethod
+    def validate_domain_name(cls, v: str) -> str:
+        """Validate DOMAIN_NAME does not contain scheme or trailing slash."""
+        if not v:
+            return v
+
+        v = v.strip()
+
+        # Check for scheme prefix
+        if v.startswith("http://") or v.startswith("https://"):
+            raise ValueError(
+                "DOMAIN_NAME must not contain a scheme (http:// or https://). "
+                "Set the scheme separately using DOMAIN_SCHEME. "
+                f"Got: {v}"
+            )
+
+        # Remove trailing slash if present
+        if v.endswith("/"):
+            v = v.rstrip("/")
+            logger.warning(
+                f"DOMAIN_NAME had trailing slash removed: {v}"
+            )
+
+        return v
+
     @field_validator('ffprobe_timeout', 'ffmpeg_timeout')
     @classmethod
     def validate_timeout_settings(cls, v: int) -> int:
@@ -398,6 +439,16 @@ class Settings(BaseSettings):
         if v > 3600:  # 1 hour max
             raise ValueError("Timeout cannot exceed 3600 seconds (1 hour)")
         return v
+
+    @model_validator(mode='after')
+    def construct_oidc_redirect_uri(self) -> 'Settings':
+        """Construct oidc_redirect_uri from domain components if not explicitly set."""
+        if not self.oidc_redirect_uri:
+            if self.domain_name:
+                self.oidc_redirect_uri = f"{self.domain_scheme}://{self.domain_name}{self.api_v1_prefix}/auth/oidc/callback"
+            else:
+                self.oidc_redirect_uri = f"{self.domain_scheme}://localhost:{self.app_port}{self.api_v1_prefix}/auth/oidc/callback"
+        return self
 
     @model_validator(mode='after')
     def validate_production_settings(self) -> 'Settings':
@@ -414,6 +465,28 @@ class Settings(BaseSettings):
 
         if self.enable_cors and not self.cors_origins:
             errors.append("CORS_ORIGINS must be configured when CORS is enabled.")
+
+        # OIDC validation
+        if self.oidc_enabled:
+            if not self.domain_name:
+                errors.append(
+                    "DOMAIN_NAME must be set when OIDC_ENABLED=true in production. "
+                    "The OIDC redirect URI must point to your production domain."
+                )
+            if self.oidc_redirect_uri and 'localhost' in self.oidc_redirect_uri:
+                errors.append(
+                    "OIDC_REDIRECT_URI contains 'localhost' in production. "
+                    "Set DOMAIN_NAME or explicitly configure OIDC_REDIRECT_URI to your production domain."
+                )
+            if self.oidc_client_secret == "change_me":
+                errors.append(
+                    "OIDC_CLIENT_SECRET must be changed from default value in production."
+                )
+            if self.oidc_disable_ssl_verify:
+                errors.append(
+                    "OIDC_DISABLE_SSL_VERIFY must be False in production. "
+                    "Never disable SSL verification in production environments."
+                )
 
         # Check if SQLite is being used when PostgreSQL components are not configured
         if self.database_url.startswith("sqlite") and not (self.postgres_url or (self.postgres_host and self.postgres_user and self.postgres_db)):
@@ -444,6 +517,20 @@ class Settings(BaseSettings):
             error_message = "Production configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
             raise ValueError(error_message)
 
+        return self
+
+    @model_validator(mode='after')
+    def validate_oidc_http_safety(self) -> 'Settings':
+        """Validate OIDC cannot be used over HTTP unless explicitly allowed."""
+        if self.oidc_enabled and self.domain_scheme == "http":
+            if not self.oidc_allow_insecure_prod:
+                raise RuntimeError(
+                    "OIDC cannot be used over HTTP. "
+                    "Enable HTTPS or set OIDC_ALLOW_INSECURE_PROD=true to override."
+                )
+            logger.warning(
+                "OIDC_ALLOW_INSECURE_PROD=true — running OIDC over HTTP is insecure and not recommended."
+            )
         return self
 
 

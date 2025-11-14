@@ -19,7 +19,7 @@ from app.schemas.auth import LoginResponse
 from app.services.user_service import UserService
 from app.models.external_identity import ExternalIdentity
 
-router = APIRouter(prefix="/auth/oidc", tags=["auth"])
+router = APIRouter(prefix="/auth/oidc")
 
 
 def register_oidc_provider():
@@ -31,6 +31,12 @@ def register_oidc_provider():
             # Disable SSL verification for local development with self-signed certificates
             # SECURITY WARNING: Never disable SSL verification in production!
             if settings.oidc_disable_ssl_verify:
+                if settings.environment == "production":
+                    raise ValueError(
+                        "OIDC_DISABLE_SSL_VERIFY cannot be enabled in production. "
+                        "SSL verification must be enabled for security."
+                    )
+
                 import ssl
                 # Create unverified SSL context for httpx
                 ssl_context = ssl.create_default_context()
@@ -219,7 +225,7 @@ async def oidc_callback(
         "is_oidc_user": True  # Flag to indicate this user logged in via OIDC
     }
 
-    # Create one-time login ticket (10 second TTL)
+    # Create one-time login ticket (60 second TTL)
     ticket = uuid.uuid4().hex
     request.app.state.cache.set(
         f"ticket:{ticket}",
@@ -228,7 +234,7 @@ async def oidc_callback(
             "refresh_token": refresh_token,
             "user": user_payload
         },
-        ex=10
+        ex=60
     )
 
     log_user_action(
@@ -238,9 +244,14 @@ async def oidc_callback(
     )
 
     # Redirect to SPA with ticket
-    # If SPA uses hash routing (#/), adjust accordingly
-    base_url = str(request.base_url).rstrip("/")
-    finish_url = f"{base_url}/#/oidc-finish?ticket={ticket}"
+    # Use DOMAIN_SCHEME and DOMAIN_NAME from settings instead of request.base_url
+    # This ensures correct scheme (https) when running behind reverse proxy
+    if not settings.domain_name:
+        # Fallback to request.base_url if domain_name not configured
+        base_url = str(request.base_url).rstrip("/")
+        finish_url = f"{base_url}/#/oidc-finish?ticket={ticket}"
+    else:
+        finish_url = f"{settings.domain_scheme}://{settings.domain_name}/#/oidc-finish?ticket={ticket}"
 
     log_info(f"OIDC login successful for {user.email}, redirecting to {finish_url}")
 
@@ -260,7 +271,7 @@ async def oidc_exchange(request: Request):
     Exchange one-time ticket for access/refresh tokens.
 
     The SPA calls this endpoint with the ticket received from the callback redirect.
-    Tickets are single-use and expire after 10 seconds.
+    Tickets are single-use and expire after 60 seconds.
     """
     if not settings.oidc_enabled:
         raise HTTPException(status_code=404, detail="OIDC authentication is not enabled")
@@ -316,8 +327,14 @@ async def oidc_logout(request: Request):
         end_session_endpoint = metadata.get("end_session_endpoint")
 
         # Build post-logout redirect URI (where provider redirects back after logout)
-        base_url = str(request.base_url).rstrip("/")
-        post_logout_redirect_uri = f"{base_url}/#/login?logout=success"
+        # Use DOMAIN_SCHEME and DOMAIN_NAME from settings instead of request.base_url
+        # This ensures correct scheme (https) when running behind reverse proxy
+        if not settings.domain_name:
+            # Fallback to request.base_url if domain_name not configured
+            base_url = str(request.base_url).rstrip("/")
+            post_logout_redirect_uri = f"{base_url}/#/login?logout=success"
+        else:
+            post_logout_redirect_uri = f"{settings.domain_scheme}://{settings.domain_name}/#/login?logout=success"
 
         if end_session_endpoint:
             # Properly encode query parameters for OIDC logout URL

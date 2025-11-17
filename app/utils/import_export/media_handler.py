@@ -6,7 +6,7 @@ Handles file validation, checksum calculation, and media deduplication.
 import hashlib
 import mimetypes
 from pathlib import Path
-from typing import Optional, Tuple, BinaryIO
+from typing import Optional, Tuple, BinaryIO, ClassVar
 
 
 class MediaHandler:
@@ -20,7 +20,7 @@ class MediaHandler:
     """
 
     # Extension to MIME type mapping
-    MIME_TYPE_MAP = {
+    MIME_TYPE_MAP: ClassVar[dict[str, str]] = {
         '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
         '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
         '.tiff': 'image/tiff', '.svg': 'image/svg+xml',
@@ -33,9 +33,9 @@ class MediaHandler:
     }
 
     # Media type categorization by extension
-    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".svg"}
-    VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".wmv", ".webm", ".mkv", ".flv", ".m4v"}
-    AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".wma"}
+    IMAGE_EXTENSIONS: ClassVar[set[str]] = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".svg"}
+    VIDEO_EXTENSIONS: ClassVar[set[str]] = {".mp4", ".avi", ".mov", ".wmv", ".webm", ".mkv", ".flv", ".m4v"}
+    AUDIO_EXTENSIONS: ClassVar[set[str]] = {".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".wma"}
 
     @staticmethod
     def calculate_checksum(file_path: Path) -> str:
@@ -111,7 +111,9 @@ class MediaHandler:
             filename: Original filename with extension
 
         Returns:
-            Tuple of (mime_type, extension) or (None, None) if unknown
+            Tuple of (mime_type, extension) where each element may independently be None.
+            mime_type is None if the MIME type cannot be guessed.
+            extension is None if the filename has no extension.
         """
         # Initialize mimetypes if needed
         if not mimetypes.inited:

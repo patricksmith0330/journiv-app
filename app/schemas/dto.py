@@ -12,6 +12,8 @@ from datetime import datetime, date
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator
 
+from app.models.enums import JobStatus, ImportSourceType, ExportType
+
 
 # ============================================================================
 # Core DTOs - Mapped to Actual Database Schema
@@ -124,7 +126,17 @@ class EntryDTO(BaseModel):
         """Normalize tags to lowercase."""
         if v is None:
             return []
-        return [tag.strip().lower() for tag in v if tag.strip()]
+        if isinstance(v, str):
+            v = [v]
+        try:
+            iterable = list(v)
+        except TypeError:
+            iterable = [v]
+        return [
+            tag.strip().lower()
+            for tag in iterable
+            if isinstance(tag, str) and tag.strip()
+        ]
 
 
 class JournalDTO(BaseModel):
@@ -236,7 +248,7 @@ class ImportJobCreateRequest(BaseModel):
 
     Maps to: ImportJob model (app/models/import_job.py)
     """
-    source_type: str = Field(..., description="Source type: journiv, markdown, dayone")
+    source_type: ImportSourceType = Field(..., description="Source type: journiv, markdown, dayone")
     # file_path is set by upload endpoint, not by client
 
 
@@ -246,7 +258,7 @@ class ExportJobCreateRequest(BaseModel):
 
     Maps to: ExportJob model (app/models/export_job.py)
     """
-    export_type: str = Field(..., description="Export type: full, journal, admin_full")
+    export_type: ExportType = Field(..., description="Export type: full, journal")
     journal_ids: Optional[List[str]] = Field(None, description="Specific journal IDs for selective export")
     include_media: bool = Field(True, description="Whether to include media files")
 
@@ -258,7 +270,7 @@ class JobStatusResponse(BaseModel):
     Maps to: ImportJob and ExportJob models
     """
     id: str = Field(..., description="Job ID (UUID)")
-    status: str = Field(..., description="Job status: pending, running, completed, failed, cancelled")
+    status: JobStatus = Field(..., description="Job status: pending, running, completed, failed, cancelled")
     progress: int = Field(..., ge=0, le=100, description="Progress percentage 0-100")
     total_items: int = Field(..., description="Total number of items to process")
     processed_items: int = Field(..., description="Number of items processed so far")
@@ -275,7 +287,7 @@ class ExportJobStatusResponse(JobStatusResponse):
 
     Maps to: ExportJob model (app/models/export_job.py)
     """
-    export_type: str = Field(..., description="Export type: full, journal, admin_full")
+    export_type: ExportType = Field(..., description="Export type: full, journal")
     include_media: bool = Field(..., description="Whether media is included")
     file_path: Optional[str] = Field(None, description="Path to export file (internal use)")
     file_size: Optional[int] = Field(None, description="Export file size in bytes")
@@ -288,7 +300,7 @@ class ImportJobStatusResponse(JobStatusResponse):
 
     Maps to: ImportJob model (app/models/import_job.py)
     """
-    source_type: str = Field(..., description="Source type: journiv, markdown, dayone")
+    source_type: ImportSourceType = Field(..., description="Source type: journiv, markdown, dayone")
 
 
 # ============================================================================
@@ -375,7 +387,7 @@ DATABASE SCHEMA MAPPING NOTES:
    - JournalColor: 20+ predefined hex colors
    - JobStatus: pending, running, completed, failed, cancelled
    - ImportSourceType: journiv, markdown, dayone
-   - ExportType: full, journal, admin_full
+   - ExportType: full, journal
 
 PLACEHOLDER FIELDS (for future implementation):
 - MediaDTO: caption (use alt_text instead)

@@ -61,6 +61,7 @@ class Journal(BaseModel, table=True):
         # Constraints
         CheckConstraint('length(title) > 0', name='check_title_not_empty'),
         CheckConstraint('entry_count >= 0', name='check_entry_count_positive'),
+        CheckConstraint('total_words >= 0', name='check_total_words_positive'),
     )
 
     @field_validator('title')

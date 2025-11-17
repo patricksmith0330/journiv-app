@@ -34,7 +34,7 @@ class ImportConfig:
 
     # File validation
     MAX_FILENAME_LENGTH = 255
-    ALLOWED_EXTENSIONS = {".zip"}
+    ALLOWED_EXTENSIONS = frozenset({".zip"})
 
     # Batch processing (for future optimization)
     ENTRY_BATCH_SIZE = 100

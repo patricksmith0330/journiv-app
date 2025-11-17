@@ -38,7 +38,7 @@ router = APIRouter()
 )
 async def upload_import(
     file: Annotated[UploadFile, File(description="Import file (ZIP archive)")],
-    source_type: Annotated[str, Form(description="Source type: journiv, markdown, dayone, journey")],
+    source_type: Annotated[str, Form(description="Source type: journiv, markdown, dayone")],
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)]
 ):
@@ -49,7 +49,6 @@ async def upload_import(
     - `journiv`: Journiv export ZIP file
     - `markdown`: Markdown files export (coming soon)
     - `dayone`: Day One export (coming soon)
-    - `journey`: Journey export (coming soon)
 
     **File requirements:**
     - Must be a ZIP archive
@@ -64,7 +63,7 @@ async def upload_import(
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid source type: {source_type}. Must be one of: journiv, markdown, dayone, journey"
+            detail=f"Invalid source type: {source_type}. Must be one of: journiv, markdown, dayone"
         )
 
     if source_type_enum != ImportSourceType.JOURNIV:
@@ -74,7 +73,7 @@ async def upload_import(
         )
 
     # Validate file type
-    if not file.filename or not file.filename.endswith('.zip'):
+    if not file.filename or not file.filename.lower().endswith('.zip'):
         raise HTTPException(
             status_code=400,
             detail="File must be a ZIP archive"
@@ -244,6 +243,9 @@ async def list_imports(
     Returns recent import jobs ordered by creation date (newest first).
     """
     try:
+        # Guard against very large result sets
+        limit = min(limit, 100)
+
         jobs = (
             session.query(ImportJob)
             .filter(ImportJob.user_id == current_user.id)
@@ -312,6 +314,16 @@ async def delete_import_job(
         from app.models.enums import JobStatus
         if job.status == JobStatus.RUNNING:
             raise HTTPException(status_code=409, detail="Cannot delete running job")
+
+        # Clean up uploaded file if it exists
+        if job.file_path:
+            try:
+                from pathlib import Path
+                import_service = ImportService(session)
+                import_service.cleanup_temp_files(Path(job.file_path))
+            except Exception as cleanup_error:
+                # Log but don't fail deletion if cleanup fails
+                log_error(cleanup_error, request_id=None, user_email=current_user.email, context="import_job_cleanup")
 
         # Delete job
         session.delete(job)

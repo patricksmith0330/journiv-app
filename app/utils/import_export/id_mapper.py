@@ -16,6 +16,12 @@ class IDMapper:
     1. Imported data may have UUIDs that conflict with existing data
     2. Foreign key relationships need to be preserved
     3. We need to track which external IDs map to which internal IDs
+
+    None-handling semantics:
+    - None is always treated as a brand-new ID and is never tracked
+    - map(None) always returns a fresh UUID and never records it
+    - record(None, new_id) silently ignores the mapping
+    - This ensures that missing IDs don't interfere with ID tracking
     """
 
     def __init__(self):
@@ -29,14 +35,18 @@ class IDMapper:
         If the old_id has been seen before, returns the same UUID.
         Otherwise, generates a new UUID and stores the mapping.
 
+        Note: None is always treated as a brand-new ID and is never tracked.
+        Each call to map(None) returns a fresh UUID.
+
         Args:
-            old_id: Original ID from source system (can be UUID string or any unique ID)
+            old_id: Original ID from source system (can be UUID string or any unique ID).
+                   If None, returns a fresh UUID without recording it.
 
         Returns:
             New UUID for use in the target system
         """
         if old_id is None:
-            # Generate a new UUID for null IDs
+            # Generate a new UUID for null IDs (never tracked)
             return uuid.uuid4()
 
         # Convert to string for consistent mapping
@@ -79,8 +89,11 @@ class IDMapper:
         """
         Record an explicit mapping for a known new UUID.
 
+        Note: If old_id is None, this method silently ignores the mapping.
+        None is never tracked to avoid interfering with ID mapping logic.
+
         Args:
-            old_id: Original ID from source system
+            old_id: Original ID from source system. If None, the mapping is ignored.
             new_id: Newly created UUID in the target system
         """
         if old_id is None:

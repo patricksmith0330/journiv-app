@@ -560,6 +560,13 @@ class ImportService:
 
         # Use file_path (which includes subdirectory like "videos/..." or "images/...")
         # instead of just filename
+        if not media_dto.file_path:
+            warning_msg = f"Missing file_path for media: {media_dto.filename}"
+            log_warning(warning_msg, user_id=str(user_id), media_filename=media_dto.filename, entry_id=str(entry_id))
+            summary.warnings.append(warning_msg)
+            summary.media_files_skipped += 1
+            return {"imported": False, "deduplicated": False}
+
         source_path = media_dir / media_dto.file_path
         if not source_path.exists():
             warning_msg = f"Media file not found: {source_path}"
@@ -781,13 +788,17 @@ class ImportService:
             file_path: Path to uploaded file
         """
         try:
-            # Remove uploaded file
-            if file_path.exists():
-                file_path.unlink()
+            upload_root = (Path(settings.import_temp_dir) / "uploads").resolve()
+            temp_root = Path(settings.import_temp_dir).resolve()
+            file_path_resolved = file_path.resolve()
 
-            # Remove extraction directory
-            extract_dir = Path(settings.import_temp_dir) / file_path.stem
-            if extract_dir.exists():
+            # Only delete files inside the configured upload directory
+            if str(file_path_resolved).startswith(str(upload_root)) and file_path_resolved.exists():
+                file_path_resolved.unlink()
+
+            # Remove extraction directory (always under import_temp_dir/<stem>)
+            extract_dir = (temp_root / file_path.stem).resolve()
+            if str(extract_dir).startswith(str(temp_root)) and extract_dir.exists():
                 shutil.rmtree(extract_dir)
 
             log_info(f"Cleaned up temp files for: {file_path}", file_path=str(file_path))

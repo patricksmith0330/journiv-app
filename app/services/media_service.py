@@ -200,7 +200,7 @@ class MediaService:
         return {
             "filename": filename,
             "file_path": relative_file_path,
-            "original_filename": original_filename,
+            "original_filename": MediaHandler.sanitize_filename(original_filename),
             "file_size": file_size,
             "mime_type": mime_type,
             "thumbnail_path": None,  # Will be generated in background

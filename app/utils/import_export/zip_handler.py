@@ -132,13 +132,21 @@ class ZipHandler:
                         f"(max: {max_size_mb}MB)"
                     )
 
+                # Ensure extract_to directory exists
+                extract_to.mkdir(parents=True, exist_ok=True)
+                extract_to_resolved = extract_to.resolve()
+
                 # Check for path traversal attacks
                 for info in zipf.infolist():
                     # Build extraction path and normalize to detect traversal attempts
                     extract_path = (extract_to / info.filename).resolve()
 
                     # Ensure it's within extract_to (prevents path traversal)
-                    if not str(extract_path).startswith(str(extract_to.resolve())):
+                    # Use proper path containment check, not string prefix matching
+                    try:
+                        extract_path.relative_to(extract_to_resolved)
+                    except ValueError:
+                        # Path is outside extract_to directory
                         raise ValueError(
                             f"ZIP contains unsafe path: {info.filename}"
                         )
@@ -228,9 +236,21 @@ class ZipHandler:
         except zipfile.BadZipFile as e:
             result["valid"] = False
             result["errors"].append(f"Invalid ZIP file: {e}")
+        except (OSError, PermissionError, FileNotFoundError) as e:
+            result["valid"] = False
+            error_msg = f"File system error: {e}"
+            result["errors"].append(error_msg)
+            log_error(e, zip_path=str(zip_path), context="zip_validation_file_system_error")
+        except RuntimeError as e:
+            result["valid"] = False
+            error_msg = f"Runtime error during validation: {e}"
+            result["errors"].append(error_msg)
+            log_error(e, zip_path=str(zip_path), context="zip_validation_runtime_error")
         except Exception as e:
             result["valid"] = False
-            result["errors"].append(f"Validation error: {e}")
+            error_msg = f"Validation error: {e}"
+            result["errors"].append(error_msg)
+            log_error(e, zip_path=str(zip_path), context="zip_validation_unexpected_error")
 
         return result
 

@@ -11,10 +11,11 @@ from app.core.logging_config import log_info, log_warning, log_error
 from app.models.export_job import ExportJob
 from app.services.export_service import ExportService
 from app.utils.import_export.constants import ProgressStages
+from app.utils.import_export.progress_utils import create_throttled_progress_callback
 
 
-@celery_app.task(name="app.tasks.export.process_export_job", bind=True)
-def process_export_job(self, job_id: str):
+@celery_app.task(name="app.tasks.export.process_export_job")
+def process_export_job(job_id: str):
     """
     Process an export job asynchronously.
 
@@ -32,7 +33,10 @@ def process_export_job(self, job_id: str):
             job = db.query(ExportJob).filter(ExportJob.id == job_uuid).first()
             if not job:
                 log_error(f"Export job not found: {job_id}", job_id=job_id)
-                return {"error": "Job not found"}
+                return {
+                    "status": "not_found",
+                    "error": "Job not found"
+                }
 
             log_info(f"Processing export job {job_id}", job_id=job_id, user_id=str(job.user_id))
 
@@ -51,12 +55,14 @@ def process_export_job(self, job_id: str):
             job.processed_items = 0
             db.commit()
 
-            def handle_progress(processed: int, total: int):
-                job.processed_items = processed
-                job.total_items = total
-                if total > 0:
-                    job.set_progress(min(80, int((processed / total) * 80)))
-                db.commit()
+            # Create throttled progress callback
+            handle_progress = create_throttled_progress_callback(
+                job=job,
+                db=db,
+                max_progress=80,
+                commit_interval=10,
+                percentage_threshold=5,
+            )
 
             # Update progress: Building export data
             job.set_progress(ProgressStages.EXPORT_BUILDING_DATA)
@@ -121,8 +127,9 @@ def process_export_job(self, job_id: str):
                     user_id = str(job.user_id)
                     job.mark_failed(str(e))
                     db.commit()
-            except Exception:
-                pass  # Best effort to mark as failed
+            except Exception as cleanup_error:
+                # Log secondary failure but still return main error
+                log_error(cleanup_error, job_id=job_id, context="failed_to_mark_job_failed")
 
             log_error(e, job_id=job_id, user_id=user_id)
 

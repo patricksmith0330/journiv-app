@@ -3,9 +3,9 @@ Export endpoints for creating data exports.
 """
 import uuid
 from pathlib import Path
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
@@ -26,6 +26,18 @@ from app.tasks.export_tasks import process_export_job
 router = APIRouter()
 
 
+def _get_download_url(request: Request, job_id: uuid.UUID) -> Optional[str]:
+    """
+    Generate download URL for export job.
+
+    Returns None if URL generation fails or job is not completed.
+    """
+    try:
+        return str(request.url_for("download_export", job_id=str(job_id)))
+    except Exception:
+        return None
+
+
 @router.post(
     "/",
     response_model=ExportJobStatusResponse,
@@ -41,6 +53,7 @@ router = APIRouter()
 )
 async def create_export(
     export_request: ExportJobCreateRequest,
+    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)]
 ):
@@ -53,15 +66,9 @@ async def create_export(
     **Export Types:**
     - `full`: Export all user data (journals, entries, media, settings)
     - `journal`: Export specific journals (requires journal_ids)
-    - `admin_full`: Export all users' data (admin only)
     """
-    try:
-        export_type = ExportType(export_request.export_type)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid export type: {export_request.export_type}"
-        )
+    # Pydantic already validates export_type as ExportType enum
+    export_type = export_request.export_type
 
     # Validate journal export has journal IDs
     if export_type == ExportType.JOURNAL:
@@ -107,7 +114,7 @@ async def create_export(
             include_media=job.include_media,
             file_path=None,  # Don't expose internal path
             file_size=job.file_size,
-            download_url=f"/api/v1/export/{job.id}/download" if job.status == JobStatus.COMPLETED else None,
+            download_url=_get_download_url(request, job.id) if job.status == JobStatus.COMPLETED else None,
         )
 
     except ValueError as e:
@@ -133,6 +140,7 @@ async def create_export(
 )
 async def get_export_status(
     job_id: uuid.UUID,
+    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)]
 ):
@@ -167,7 +175,7 @@ async def get_export_status(
             include_media=job.include_media,
             file_path=None,  # Don't expose internal path
             file_size=job.file_size,
-            download_url=f"/api/v1/export/{job.id}/download" if job.status == JobStatus.COMPLETED else None,
+            download_url=_get_download_url(request, job.id) if job.status == JobStatus.COMPLETED else None,
         )
 
     except HTTPException:
@@ -179,6 +187,7 @@ async def get_export_status(
 
 @router.get(
     "/{job_id}/download",
+    name="download_export",
     responses={
         200: {"description": "Export file", "content": {"application/zip": {}}},
         401: {"description": "Not authenticated"},
@@ -256,6 +265,7 @@ async def download_export(
     }
 )
 async def list_exports(
+    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
     limit: int = 20,
@@ -267,6 +277,9 @@ async def list_exports(
     Returns recent export jobs ordered by creation date (newest first).
     """
     try:
+        # Guard against very large result sets
+        limit = min(limit, 100)
+
         jobs = (
             session.query(ExportJob)
             .filter(ExportJob.user_id == current_user.id)
@@ -292,7 +305,7 @@ async def list_exports(
                 include_media=job.include_media,
                 file_path=None,
                 file_size=job.file_size,
-                download_url=f"/api/v1/export/{job.id}/download" if job.status == JobStatus.COMPLETED else None,
+                download_url=_get_download_url(request, job.id) if job.status == JobStatus.COMPLETED else None,
             )
             for job in jobs
         ]

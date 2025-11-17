@@ -55,7 +55,7 @@ def validate_import_data(data: Dict[str, Any], source_type: str) -> ValidationRe
 
     Args:
         data: Parsed import data
-        source_type: Source type (journiv/markdown/dayone/journey)
+        source_type: Source type (journiv/markdown/dayone)
 
     Returns:
         ValidationResult with any errors or warnings
@@ -125,8 +125,10 @@ def validate_journiv_export(data: Dict[str, Any]) -> ValidationResult:
         result.add_error(f"Invalid export format: {e}")
         log_error(e, context="export_validation")
     except Exception as e:
-        result.add_error(f"Validation error: {e}")
-        log_error(e, context="validation")
+        # Unexpected exceptions (programming errors, system issues) should propagate
+        # rather than being misclassified as validation errors
+        log_error(e, context="export_validation_unexpected_error")
+        raise
 
     return result
 

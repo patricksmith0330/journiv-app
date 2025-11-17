@@ -14,6 +14,7 @@ from app.models.enums import JobStatus, ImportSourceType
 from app.services.import_service import ImportService
 from app.utils.import_export.constants import ProgressStages
 from app.utils.import_export import validate_import_data
+from app.utils.import_export.progress_utils import create_throttled_progress_callback
 
 
 @celery_app.task(name="app.tasks.import.process_import_job", bind=True)
@@ -35,7 +36,10 @@ def process_import_job(self, job_id: str):
             job = db.query(ImportJob).filter(ImportJob.id == job_uuid).first()
             if not job:
                 log_error(f"Import job not found: {job_id}", job_id=job_id)
-                return {"error": "Job not found"}
+                return {
+                    "status": "not_found",
+                    "error": "Job not found"
+                }
 
             log_info(f"Processing import job {job_id}", job_id=job_id, user_id=str(job.user_id), source_type=job.source_type.value)
 
@@ -62,12 +66,14 @@ def process_import_job(self, job_id: str):
             job.processed_items = 0
             db.commit()
 
-            def handle_progress(processed: int, total: int):
-                job.processed_items = processed
-                job.total_items = total
-                if total > 0:
-                    job.set_progress(min(90, int((processed / total) * 90)))
-                db.commit()
+            # Create throttled progress callback
+            handle_progress = create_throttled_progress_callback(
+                job=job,
+                db=db,
+                max_progress=90,
+                commit_interval=10,
+                percentage_threshold=5,
+            )
 
             # Update progress: Importing data
             job.set_progress(ProgressStages.IMPORT_PROCESSING)

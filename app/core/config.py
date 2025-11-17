@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     celery_result_backend: Optional[str] = None  # e.g., "redis://localhost:6379/0"
     celery_task_serializer: str = "json"
     celery_result_serializer: str = "json"
-    celery_accept_content: List[str] = ["json"]
+    celery_accept_content: List[str] = Field(default_factory=lambda: ["json"])
     celery_timezone: str = "UTC"
     celery_enable_utc: bool = True
 

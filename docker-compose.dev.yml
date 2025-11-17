@@ -34,13 +34,14 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
 
-      # Database (same as app)
-      - DATABASE_URL=sqlite:///./journiv.db
+      # Database (aligned with app services)
+      # Default to SQLite for sqlite profile, PostgreSQL for postgres profile
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./journiv.db}
       - POSTGRES_URL=${POSTGRES_URL:-}
-      - POSTGRES_HOST=${POSTGRES_HOST:-}
-      - POSTGRES_USER=${POSTGRES_USER:-}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
-      - POSTGRES_DB=${POSTGRES_DB:-}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_USER=${POSTGRES_USER:-journiv}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-journiv_password}
+      - POSTGRES_DB=${POSTGRES_DB:-journiv_dev}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
 
       # Security

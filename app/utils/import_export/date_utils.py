@@ -4,11 +4,11 @@ Date and time utilities for import/export operations.
 Handles timezone conversion, parsing, and formatting of dates.
 """
 from datetime import datetime, timezone
-from typing import Optional, Union, Any
+from typing import Optional, Union
 from dateutil import parser as date_parser
 
 
-def parse_datetime(date_str: Any) -> datetime:
+def parse_datetime(date_str: Union[str, datetime, int, float]) -> datetime:
     """
     Parse a datetime string or object into a datetime.
 
@@ -24,7 +24,8 @@ def parse_datetime(date_str: Any) -> datetime:
         Parsed datetime object
 
     Raises:
-        ValueError: If the date string cannot be parsed or type is unsupported
+        ValueError: If the date string cannot be parsed
+        TypeError: If the input type is unsupported
     """
     if isinstance(date_str, datetime):
         return date_str
@@ -47,7 +48,7 @@ def parse_datetime(date_str: Any) -> datetime:
             raise ValueError(f"Unable to parse date: {date_str}") from e
     else:
         # Defensive check for unexpected types (e.g., None, list, dict, etc.)
-        raise ValueError(f"Unsupported date type: {type(date_str)}")
+        raise TypeError(f"Unsupported date type: {type(date_str)}")
 
 
 def ensure_utc(dt: datetime) -> datetime:

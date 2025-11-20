@@ -3,6 +3,7 @@
 #
 # Usage:
 #   docker compose -f docker-compose.dev.postgres.yml up -d
+# Note: dev compose files uses the main tag (docker image from main # branch) for development purposes. Do not run this for production # use prod compose files instead which uses the latest tag.
 
 services:
   postgres:
@@ -76,7 +77,7 @@ services:
       - EXPORT_CLEANUP_DAYS=7
 
       # App settings
-      - APP_VERSION=${APP_VERSION:-0.1.0-beta.7}
+      - APP_VERSION=${APP_VERSION:-main}
       - ENVIRONMENT=development
       - DEBUG=true
 
@@ -130,7 +131,7 @@ services:
 
       # Core app
       - APP_NAME=${APP_NAME:-Journiv}
-      - APP_VERSION=${APP_VERSION:-0.1.0-beta.7}
+      - APP_VERSION=${APP_VERSION:-main}
       - DEBUG=true
       - ENVIRONMENT=development
       - DOMAIN_NAME=${DOMAIN_NAME:-localhost}
@@ -196,4 +197,3 @@ volumes:
 networks:
   default:
     driver: bridge
-

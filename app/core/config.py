@@ -432,12 +432,37 @@ class Settings(BaseSettings):
 
     @staticmethod
     def _is_postgres_url(url: str) -> bool:
-        """Check if a URL is a PostgreSQL URL."""
+        """
+        Check if a URL is a PostgreSQL URL.
+
+        Recognizes standard PostgreSQL URLs and SQLAlchemy driver variants:
+        - postgresql://
+        - postgres://
+        - postgresql+asyncpg://
+        - postgresql+psycopg2://
+        - postgresql+psycopg://
+        - etc.
+        """
         if not url:
             return False
         url = url.strip()
         if not url:
             return False
+
+        # Try to use SQLAlchemy's URL parser for proper detection (handles driver variants)
+        if make_url is not None:
+            try:
+                parsed = make_url(url)
+                # Check if the driver name indicates PostgreSQL
+                driver_name = parsed.drivername or ""
+                # Remove driver suffix (e.g., "postgresql+asyncpg" -> "postgresql")
+                base_driver = driver_name.split("+")[0].lower()
+                return base_driver in ("postgresql", "postgres")
+            except Exception as e:
+                # Log the exception for debugging but fall through to string matching
+                logger.debug(f"Failed to parse URL with SQLAlchemy: {e}")
+
+        # Fallback: string prefix matching for standard URLs
         return url.startswith(("postgresql://", "postgres://"))
 
     @staticmethod
@@ -461,8 +486,9 @@ class Settings(BaseSettings):
             try:
                 parsed = make_url(url)
                 return parsed.render_as_string(hide_password=True)
-            except Exception:
-                pass
+            except Exception as e:
+                # Log the exception for debugging but fall through to manual masking
+                logger.debug(f"Failed to parse URL with SQLAlchemy for sanitization: {e}")
 
         # Fallback: manually mask password if present
         # Pattern: scheme://user:password@host/path

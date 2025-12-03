@@ -29,7 +29,7 @@ def register_oidc_provider():
             client_kwargs = {"scope": settings.oidc_scopes}
 
             # Disable SSL verification for local development with self-signed certificates
-            # SECURITY WARNING: Never disable SSL verification in production!
+            # Never disable SSL verification in production!
             if settings.oidc_disable_ssl_verify:
                 if settings.environment == "production":
                     raise ValueError(
@@ -175,6 +175,19 @@ async def oidc_callback(
         log_error("OIDC claims missing 'sub' field")
         raise HTTPException(status_code=400, detail="Invalid OIDC claims: missing subject")
 
+    # Require email to be verified by the IDP before allowing account linking/login
+    if email and not claims.get('email_verified', False):
+        log_error(f"OIDC login failed: Email {email} not verified by identity provider.", subject=subject)
+        raise HTTPException(
+            status_code=403, 
+            detail="Email not verified by identity provider"
+        )
+        
+    # Normalize email to lowercase immediately after security checks
+    # This ensures consistency for all subsequent database lookups (Issue #166 and #171 comment)
+    if email:
+        email = email.lower()
+
     # Get or create user from external identity
     user_service = UserService(session)
 
@@ -183,23 +196,34 @@ async def oidc_callback(
 
     # If not first user, check signup/auto-provision settings
     if not is_first and settings.disable_signup:
-        # Check if external identity already exists
+        # Check if external identity already exists (User is already OIDC-linked)
         statement = select(ExternalIdentity).where(
             ExternalIdentity.issuer == issuer,
             ExternalIdentity.subject == subject
         )
         external_identity = session.exec(statement).first()
-        if not external_identity:
+
+        # Check if a local user (admin-created) exists with the same email.
+        # This allows existing users to log in/link SSO even if signup is disabled,
+        # ensuring the admin's user management action is respected.
+        local_user_by_email = None
+        if email:
+            local_user_by_email = user_service.get_user_by_email(email)
+
+        # Block login ONLY if neither an external identity nor a local user exists.
+        if not external_identity and not local_user_by_email:
             log_warning(
                 "OIDC login rejected because signup is disabled",
                 issuer=issuer,
-                subject=subject
+                subject=subject,
+                user_email=email
             )
             raise HTTPException(status_code=403, detail="Sign up is disabled")
 
     try:
         # First user always gets provisioned as admin (bootstrap override)
         # Otherwise, respect oidc_auto_provision setting
+        # This function handles linking the ExternalIdentity to an existing local user if found.
         user = user_service.get_or_create_user_from_oidc(
             issuer=issuer,
             subject=subject,

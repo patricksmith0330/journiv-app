@@ -338,8 +338,19 @@ class UserService:
                 self.session.rollback()
                 log_error(exc)
                 raise
-            else:
-                self.session.flush()
+        self.session.add(settings)
+        if commit:
+            try:
+                self.session.commit()
+                self.session.refresh(settings)
+            except SQLAlchemyError as exc:
+                self.session.rollback()
+                log_error(exc)
+                raise
+        else:
+            self.session.flush()
+
+        return settings
 
         return settings
 

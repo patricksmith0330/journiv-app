@@ -392,4 +392,3 @@ async def oidc_logout(request: Request):
     except Exception as exc:
         log_error(f"OIDC logout failed: {exc}")
         raise HTTPException(status_code=500, detail="OIDC logout failed")
-    
